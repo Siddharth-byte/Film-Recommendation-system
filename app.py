@@ -33,7 +33,7 @@ topk_indices, topk_scores = load_similarity()
 
 # ================== TMDB POSTER ==================
 def fetch_poster(movie_id):
-    api_key = bb0eb7ebaa0bce6664f2d794574d970b
+    api_key = "bb0eb7ebaa0bce6664f2d794574d970b"
     url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&language=en-US"
     data = requests.get(url).json()
     poster_path = data.get("poster_path")
