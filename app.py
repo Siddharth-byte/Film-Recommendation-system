@@ -1,59 +1,80 @@
-import pickle
 import streamlit as st
+import pickle
 import requests
+from pathlib import Path
+import numpy as np
 
-def fetch_poster(movie_id):
-    url = "https://api.themoviedb.org/3/movie/{}?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US".format(movie_id)
-    data = requests.get(url)
-    data = data.json()
-    poster_path = data['poster_path']
-    full_path = "https://image.tmdb.org/t/p/w500/" + poster_path
-    return full_path
-
-def recommend(movie):
-    index = movies[movies['title'] == movie].index[0]
-    distances = sorted(list(enumerate(similarity[index])), reverse=True, key=lambda x: x[1])
-    recommended_movie_names = []
-    recommended_movie_posters = []
-    for i in distances[1:6]:
-        # fetch the movie poster
-        movie_id = movies.iloc[i[0]].movie_id
-        recommended_movie_posters.append(fetch_poster(movie_id))
-        recommended_movie_names.append(movies.iloc[i[0]].title)
-
-    return recommended_movie_names,recommended_movie_posters
-
-
-st.header('Movie Recommender System')
-movies = pickle.load(open('movies_list.pkl','rb'))
-similarity = pickle.load(open('similarity_topk.pkl','rb'))
-
-movie_list = movies['title'].values
-selected_movie = st.selectbox(
-    "Type or select a movie from the dropdown",
-    movie_list
+# ================== PAGE CONFIG ==================
+st.set_page_config(
+    page_title="Movie Recommendation System",
+    layout="wide"
 )
 
-if st.button('Show Recommendation'):
-    recommended_movie_names,recommended_movie_posters = recommend(selected_movie)
-    col1, col2, col3, col4, col5 = st.beta_columns(5)
-    with col1:
-        st.text(recommended_movie_names[0])
-        st.image(recommended_movie_posters[0])
-    with col2:
-        st.text(recommended_movie_names[1])
-        st.image(recommended_movie_posters[1])
+st.title("🎬 Movie Recommendation System")
 
-    with col3:
-        st.text(recommended_movie_names[2])
-        st.image(recommended_movie_posters[2])
-    with col4:
-        st.text(recommended_movie_names[3])
-        st.image(recommended_movie_posters[3])
-    with col5:
-        st.text(recommended_movie_names[4])
-        st.image(recommended_movie_posters[4])
+# ================== PATHS ==================
+BASE_DIR = Path(__file__).resolve().parent
+MOVIE_PATH = BASE_DIR /  "movies_list.pkl"
+SIM_PATH = BASE_DIR / "similarity_topk.pkl"
 
+# ================== LOAD DATA ==================
+@st.cache_data
+def load_movies():
+    with open(MOVIE_PATH, "rb") as f:
+        return pickle.load(f)
 
+@st.cache_resource
+def load_similarity():
+    with open(SIM_PATH, "rb") as f:
+        return pickle.load(f)  # (topk_indices, topk_scores)
 
+movies = load_movies()
+topk_indices, topk_scores = load_similarity()
 
+# ================== TMDB POSTER ==================
+def fetch_poster(movie_id):
+    api_key = st.secrets["TMDB_API_KEY"]
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&language=en-US"
+    data = requests.get(url).json()
+    poster_path = data.get("poster_path")
+    if poster_path:
+        return "https://image.tmdb.org/t/p/w500/" + poster_path
+    return None
+
+# ================== RECOMMENDATION ==================
+def recommend(movie_title):
+    idx = movies[movies["title"] == movie_title].index[0]
+
+    indices = topk_indices[idx]
+    scores = topk_scores[idx]
+
+    # sort by similarity score
+    order = np.argsort(scores)[::-1]
+
+    # skip itself, take top 5
+    movie_idxs = indices[order][1:6]
+
+    names = []
+    posters = []
+
+    for i in movie_idxs:
+        names.append(movies.iloc[i].title)
+        posters.append(fetch_poster(movies.iloc[i].movie_id))
+
+    return names, posters
+
+# ================== UI ==================
+movie_name = st.text_input("🔍 Enter a movie name")
+
+if st.button("Search"):
+    if movie_name not in movies["title"].values:
+        st.error("❌ Movie not found. Please check spelling.")
+    else:
+        names, posters = recommend(movie_name)
+
+        cols = st.columns(5)
+        for col, name, poster in zip(cols, names, posters):
+            with col:
+                if poster:
+                    st.image(poster)
+                st.caption(name)
